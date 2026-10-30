@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MicroVM Grader</title>
+<style>
+:root{--bg:#0e1116;--panel:#161b22;--line:#2a313c;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+--ok:#3fb950;--bad:#f85149;--warn:#d29922;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+h1{font-size:18px;margin:0}
+header span{color:var(--muted);font-size:13px}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px 24px;max-width:1400px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+label{display:block;color:var(--muted);font-size:12px;margin:0 0 4px;text-transform:uppercase;letter-spacing:.04em}
+select,input,textarea,button{font:inherit;color:var(--text);background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+select,input{width:100%}
+textarea{width:100%;height:340px;font:13px/1.45 var(--mono);resize:vertical;tab-size:4;white-space:pre}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.stmt{color:var(--muted);font-size:13px;margin:0 0 12px}
+.note{font-size:13px;margin:8px 0 12px;padding:8px 10px;border-left:3px solid var(--accent);background:#0d1117;border-radius:0 6px 6px 0}
+.actions{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
+button{cursor:pointer}
+button.run{background:var(--accent);color:#04121f;border-color:var(--accent);font-weight:600;padding:9px 20px}
+button:disabled{opacity:.5;cursor:wait}
+.hint{color:var(--muted);font-size:12px}
+.verdict{display:inline-block;font:700 18px var(--mono);padding:6px 14px;border-radius:6px;border:1px solid}
+.v-ACCEPTED{color:var(--ok);border-color:var(--ok);background:#3fb95018}
+.v-WRONG_ANSWER{color:var(--warn);border-color:var(--warn);background:#d2992218}
+.v-TIMEOUT,.v-KILLED,.v-ERROR,.v-FAILED{color:var(--bad);border-color:var(--bad);background:#f8514918}
+.steps{list-style:none;margin:0;padding:0;font:13px var(--mono)}
+.steps li{padding:3px 0;color:var(--muted)}
+.steps li.active{color:var(--accent)}
+.steps li.done{color:var(--ok)}
+.steps li::before{content:"○ "}
+.steps li.active::before{content:"◔ "}
+.steps li.done::before{content:"● "}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td.mono,pre{font:12px/1.4 var(--mono)}
+pre{margin:0;white-space:pre-wrap;word-break:break-word}
+.t-pass{color:var(--ok)}.t-wrong{color:var(--warn)}.t-timeout,.t-killed,.t-error{color:var(--bad)}
+.err{color:var(--muted)}
+.timings{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.timings div{background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center}
+.timings b{display:block;font:700 16px var(--mono)}
+.timings span{color:var(--muted);font-size:11px;text-transform:uppercase}
+.meta{margin-top:10px;font-size:12px;color:var(--muted)}
+.meta code{font-family:var(--mono);color:var(--text)}
+.errbox{background:#f8514915;border:1px solid var(--bad);border-radius:6px;padding:10px;margin-top:10px}
+.empty{color:var(--muted);text-align:center;padding:60px 10px}
+.match{font-size:13px;margin-left:8px}
+</style>
+</head>
+<body>
+<header><h1>MicroVM Grader</h1><span>Every submission runs in its own throwaway AWS Lambda MicroVM, then the VM is terminated.</span></header>
+<main>
+  <section class="card">
+    <div class="row">
+      <div><label for="problem">Problem</label><select id="problem"></select></div>
+      <div><label for="sample">Sample submission</label><select id="sample"></select></div>
+    </div>
+    <p class="stmt" id="stmt"></p>
+    <div class="note" id="note" hidden></div>
+    <label for="code">Python code (editable)</label>
+    <textarea id="code" spellcheck="false"></textarea>
+    <div class="row" style="margin:12px 0 0">
+      <div><label for="secret">Demo secret</label><input id="secret" type="password" placeholder="DEMO_SECRET from .env" autocomplete="off"></div>
+      <div class="actions" style="margin:0;align-self:end"><button class="run" id="run">Run in a MicroVM</button></div>
+    </div>
+    <div class="hint" style="margin-top:6px">Secret is kept only in this browser (localStorage).</div>
+  </section>
+
+  <section class="card" id="out">
+    <div class="empty">Pick a sample (try an attack) and press <b>Run in a MicroVM</b>.</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STEPS = ["Launch MicroVM from snapshot", "Create auth token", "Run 5 tests in sandbox (no network, uid 1001, 512 MB, 64 procs)", "Compare with expected answers (trusted side)", "Terminate MicroVM"];
+let catalog = null;
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k);
+  return e;
+}
+
+async function init() {
+  $("secret").value = localStorage.getItem("demoSecret") || "";
+  try {
+    catalog = await (await fetch("/api/catalog")).json();
+  } catch (e) {
+    $("out").replaceChildren(el("div", { class: "errbox", text: "Could not load /api/catalog: " + e }));
+    return;
+  }
+  for (const p of catalog.problems) $("problem").append(new Option(p.title, p.id));
+  const groups = {};
+  for (const s of catalog.samples) {
+    if (!groups[s.group]) { groups[s.group] = el("optgroup", { label: s.group }); $("sample").append(groups[s.group]); }
+    groups[s.group].append(new Option(s.label, s.id));
+  }
+  $("problem").onchange = showProblem;
+  $("sample").onchange = showSample;
+  $("run").onclick = run;
+  showProblem();
+  showSample();
+}
+
+function problem() { return catalog.problems.find((p) => p.id === $("problem").value); }
+function sample() { return catalog.samples.find((s) => s.id === $("sample").value); }
+function showProblem() { $("stmt").textContent = problem().statement; }
+function showSample() {
+  const s = sample();
+  $("code").value = s.code;
+  $("note").hidden = false;
+  $("note").textContent = "Expected verdict: " + s.expect + ". " + s.note;
+}
+
+function renderRunning() {
+  const ol = el("ol", { class: "steps" });
+  STEPS.forEach((t) => ol.append(el("li", { text: t })));
+  $("out").replaceChildren(el("h3", { text: "Running..." }), ol);
+  return ol;
+}
+
+async function run() {
+  const secret = $("secret").value.trim();
+  if (!secret) { $("secret").focus(); return; }
+  localStorage.setItem("demoSecret", secret);
+  $("run").disabled = true;
+  const ol = renderRunning();
+  // Animated progress: the server does the real work; this only mirrors the known order.
+  let i = 0;
+  const tick = () => {
+    [...ol.children].forEach((li, n) => { li.className = n < i ? "done" : n === i ? "active" : ""; });
+    if (i < STEPS.length - 1) i++;
+  };
+  tick();
+  const timer = setInterval(tick, 1800);
+  const t0 = performance.now();
+  try {
+    const res = await fetch("/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-secret": secret },
+      body: JSON.stringify({ problemId: $("problem").value, code: $("code").value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    clearInterval(timer);
+    if (res.ok) renderResult(data, performance.now() - t0);
+    else renderFailure(res.status, data);
+  } catch (e) {
+    clearInterval(timer);
+    renderFailure(0, { error: "network error", detail: String(e) });
+  } finally {
+    $("run").disabled = false;
+  }
+}
+
+function renderFailure(status, data) {
+  const why = status === 401 ? "Wrong demo secret." : data.error || "request failed";
+  const box = el("div", { class: "errbox" }, el("b", { text: "HTTP " + status + " - " + why }));
+  if (data.detail) box.append(el("pre", { text: data.detail }));
+  $("out").replaceChildren(el("span", { class: "verdict v-FAILED", text: "FAILED" }), box);
+}
+
+function cell(text, cls) { return el("td", { class: cls || "", text }); }
+
+function renderResult(r, wallMs) {
+  const s = sample();
+  const head = el("div", {}, el("span", { class: "verdict v-" + r.verdict, text: r.verdict }),
+    el("span", { class: "match", text: r.passed + "/" + r.total + " tests passed" }));
+  if (s && $("code").value === s.code) {
+    const same = s.expect === r.verdict;
+    head.append(el("span", { class: "match " + (same ? "t-pass" : "t-error"), text: same ? " ✓ as expected" : " ✗ expected " + s.expect }));
+  }
+  const inputs = problem().inputs;
+  const table = el("table", {}, el("thead", {}, el("tr", {}, el("th", { text: "#" }), el("th", { text: "Input" }), el("th", { text: "Result" }), el("th", { text: "ms" }), el("th", { text: "Output / error" }))));
+  const body = el("tbody");
+  for (const t of r.results) {
+    const out = el("td");
+    if (t.stdout.trim()) out.append(el("pre", { text: t.stdout.trim() }));
+    if (t.stderr.trim()) out.append(el("pre", { class: "err", text: t.stderr.trim() }));
+    if (!t.stdout.trim() && !t.stderr.trim()) out.append(el("span", { class: "err", text: "(no output)" }));
+    body.append(el("tr", {}, cell(String(t.test)), cell(inputs[t.test - 1] || "", "mono"), cell(t.verdict.toUpperCase(), "t-" + t.verdict), cell(String(t.ms)), out));
+  }
+  table.append(body);
+  const tm = r.timings;
+  const timings = el("div", { class: "timings" });
+  for (const [k, label] of [["launchMs", "launch"], ["tokenMs", "token"], ["gradeMs", "run tests"], ["terminateMs", "terminate"]]) {
+    timings.append(el("div", {}, el("b", { text: tm[k] + " ms" }), el("span", { text: label })));
+  }
+  const meta = el("div", { class: "meta" }, "MicroVM ", el("code", { text: r.microvmId }), " was created, used once, and terminated. End-to-end " + (wallMs / 1000).toFixed(1) + " s.");
+  $("out").replaceChildren(head, table, timings, meta);
+}
+
+init();
+</script>
+</body>
+</html>

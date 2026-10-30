@@ -1,0 +1,12 @@
+{
+  "id": "two-sum",
+  "title": "Two Sum",
+  "statement": "stdin: one JSON line {\"nums\":[...],\"target\":n}. Print the indices [i,j] (i<j) of the two numbers that add up to target, as compact JSON, e.g. [0,1]. Exactly one pair exists in every test.",
+  "tests": [
+    { "input": "{\"nums\":[2,7,11,15],\"target\":9}\n", "expected": "[0,1]" },
+    { "input": "{\"nums\":[3,2,4],\"target\":6}\n", "expected": "[1,2]" },
+    { "input": "{\"nums\":[3,3],\"target\":6}\n", "expected": "[0,1]" },
+    { "input": "{\"nums\":[-3,4,3,90],\"target\":0}\n", "expected": "[0,2]" },
+    { "input": "{\"nums\":[0,4,3,0],\"target\":0}\n", "expected": "[0,3]" }
+  ]
+}

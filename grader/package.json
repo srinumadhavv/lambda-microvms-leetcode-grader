@@ -1,0 +1,1 @@
+{"name":"@demo/grader","private":true,"version":"0.1.0","type":"module","dependencies":{"@aws-sdk/client-lambda-microvms":"^3.1159.0","zod":"^4.6.7"}}

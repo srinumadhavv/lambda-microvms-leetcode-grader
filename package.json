@@ -1,0 +1,37 @@
+{
+  "name": "microvm-grader",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "LeetCode-style grader that runs untrusted code inside AWS Lambda MicroVMs (conference demo)",
+  "workspaces": [
+    "runner",
+    "grader",
+    "cli",
+    "infra"
+  ],
+  "engines": {
+    "node": ">=20.18"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:runner": "node runner/build.mjs",
+    "package:image": "bash scripts/package-image.sh",
+    "submit": "tsx --env-file-if-exists=.env cli/src/submit.ts",
+    "attack": "tsx --env-file-if-exists=.env cli/src/attack.ts",
+    "parallel": "tsx --env-file-if-exists=.env cli/src/parallel.ts",
+    "events": "tsx --env-file-if-exists=.env cli/src/makeEvents.ts",
+    "cleanup": "tsx --env-file-if-exists=.env cli/src/cleanup.ts",
+    "local:runner": "bash scripts/local-runner.sh",
+    "local:attack": "tsx --env-file-if-exists=.env cli/src/localAttack.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "aws-cdk": "^2.1146.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunAndControlGraderMicrovms",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:RunMicrovm",
+        "lambda:CreateMicrovmAuthToken",
+        "lambda:TerminateMicrovm",
+        "lambda:GetMicrovm"
+      ],
+      "Resource": [
+        "arn:aws:lambda:ap-southeast-1:REPLACE_ACCOUNT:microvm-image:grader-image*",
+        "arn:aws:lambda:ap-southeast-1:REPLACE_ACCOUNT:microvm:*"
+      ]
+    },
+    {
+      "Sid": "PassManagedConnectors",
+      "Effect": "Allow",
+      "Action": "lambda:PassNetworkConnector",
+      "Resource": "arn:aws:lambda:ap-southeast-1:aws:network-connector:aws-network-connector:*"
+    },
+    {
+      "Sid": "ListMicrovms",
+      "Effect": "Allow",
+      "Action": "lambda:ListMicrovms",
+      "Resource": "*"
+    }
+  ]
+}

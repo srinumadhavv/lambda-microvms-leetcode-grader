@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MicroVM Grader - Architecture</title>
+<style>
+@page { size: A4 landscape; margin: 14mm; }
+* { box-sizing: border-box; }
+body { zoom: 0.88; font: 11pt/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1c2430; margin: 0; }
+h1 { font-size: 24pt; margin: 0 0 4pt; } h2 { font-size: 16pt; margin: 0 0 8pt; color: #0b3d63; }
+h3 { font-size: 11.5pt; margin: 10pt 0 3pt; }
+.sub { color: #5b6675; margin-bottom: 10pt; }
+section { page-break-after: always; break-inside: avoid; } section:last-child { page-break-after: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 10pt; margin: 6pt 0; }
+th, td { border: 1px solid #d4dae2; padding: 4pt 7pt; text-align: left; vertical-align: top; }
+th { background: #eef3f8; }
+code { font: 9.5pt Menlo, monospace; background: #f1f4f8; padding: 0 3pt; border-radius: 3pt; }
+.cols { display: flex; gap: 16pt; } .cols > div { flex: 1; }
+ul { margin: 3pt 0 3pt 16pt; padding: 0; } li { margin: 2pt 0; }
+.note { background: #fff7e0; border-left: 4px solid #e0a800; padding: 6pt 9pt; margin: 8pt 0; font-size: 10pt; }
+svg { display: block; margin: 0 auto; max-height: 112mm; width: auto; max-width: 100%; }
+svg text { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; }
+</style></head><body>
+
+<section>
+<h1>MicroVM Grader</h1>
+<div class="sub">A LeetCode-style code grader that runs untrusted Python inside throwaway AWS Lambda MicroVMs. Built for a recorded conference demo. Region ap-southeast-1.</div>
+<div class="cols">
+<div>
+<h3>What it does</h3>
+<ul>
+<li>You submit Python for the <b>two-sum</b> problem.</li>
+<li>Every submission runs in its <b>own fresh MicroVM</b>, restored from a snapshot of the <code>grader-image</code> image.</li>
+<li>The grader scores it (5 tests), returns a verdict and timings, and <b>always terminates</b> the VM.</li>
+<li>Seven hostile payloads (loop, fork bomb, memory bomb, <code>rm -rf</code>, network exfil, answer theft, runner kill) are contained. A correct solution run before and after proves the platform is unaffected.</li>
+</ul>
+<h3>The key idea: two trust zones</h3>
+<ul>
+<li><b>Trusted</b>: the grader (CLI or Lambda). Holds the expected answers, AWS credentials and the comparison logic.</li>
+<li><b>Untrusted</b>: the MicroVM. Receives only <code>code</code> and <code>inputs</code>. Has no AWS role, no answers, no network.</li>
+</ul>
+</div>
+<div>
+<h3>Verdicts</h3>
+<table><tr><th>Verdict</th><th>Meaning</th></tr>
+<tr><td>ACCEPTED</td><td>all tests pass</td></tr>
+<tr><td>WRONG_ANSWER</td><td>ran fine, some output wrong</td></tr>
+<tr><td>TIMEOUT</td><td>a test exceeded 2 s</td></tr>
+<tr><td>KILLED</td><td>process died on a signal</td></tr>
+<tr><td>ERROR</td><td>non-zero exit (e.g. permission denied, no network)</td></tr></table>
+<h3>Deployed resources (account 498556006298)</h3>
+<table><tr><th>Resource</th><th>Name</th></tr>
+<tr><td>MicroVM image</td><td><code>grader-image</code> v4.0</td></tr>
+<tr><td>S3 bucket</td><td><code>mvm-grader-498556006298-apse1</code> (code zip)</td></tr>
+<tr><td>IAM role</td><td><code>mvm-grader-build</code> (image build)</td></tr>
+<tr><td>Lambda + Function URL</td><td><code>MicrovmGraderStack-Grader…</code> (CDK)</td></tr>
+<tr><td>CDK bootstrap</td><td><code>CDKToolkit</code> stack</td></tr></table>
+</div></div>
+</section>
+
+<section>
+<h2>1. Architecture</h2>
+<svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#33475b"/></marker></defs>
+<!-- zones -->
+<rect x="150" y="14" width="440" height="492" rx="12" fill="#eef7ef" stroke="#3d8b4f" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="165" y="36" font-size="13" font-weight="700" fill="#2c6a3b">TRUSTED  (your AWS account)</text>
+<rect x="640" y="14" width="350" height="492" rx="12" fill="#fdeeee" stroke="#c0392b" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="655" y="36" font-size="13" font-weight="700" fill="#a02f24">UNTRUSTED  (MicroVM, restored from snapshot)</text>
+<!-- client -->
+<rect x="10" y="190" width="125" height="120" rx="8" fill="#fff" stroke="#33475b" stroke-width="1.5"/>
+<text x="72" y="215" font-size="12" font-weight="700" text-anchor="middle">You</text>
+<text x="72" y="236" font-size="10.5" text-anchor="middle">Lambda console</text>
+<text x="72" y="251" font-size="10.5" text-anchor="middle">Test tab</text>
+<text x="72" y="271" font-size="10.5" text-anchor="middle">or CLI</text>
+<text x="72" y="286" font-size="10.5" text-anchor="middle">npm run submit</text>
+<!-- lambda -->
+<rect x="170" y="130" width="210" height="190" rx="8" fill="#fff" stroke="#33475b" stroke-width="1.5"/>
+<text x="275" y="153" font-size="12.5" font-weight="700" text-anchor="middle">Grader Lambda</text>
+<text x="275" y="170" font-size="10" text-anchor="middle" fill="#5b6675">Node 22, ARM64, 90 s timeout</text>
+<text x="185" y="194" font-size="10.5">1. check x-demo-secret header</text>
+<text x="185" y="212" font-size="10.5">2. load problem + expected answers</text>
+<text x="185" y="230" font-size="10.5">3. RunMicrovm / auth token</text>
+<text x="185" y="248" font-size="10.5">4. POST /grade (code + inputs only)</text>
+<text x="185" y="266" font-size="10.5">5. zod-validate reply, compare</text>
+<text x="185" y="284" font-size="10.5">6. TerminateMicrovm (finally)</text>
+<text x="185" y="302" font-size="10.5">7. verdict + timings JSON</text>
+<!-- problems -->
+<rect x="170" y="345" width="210" height="52" rx="8" fill="#fff" stroke="#3d8b4f" stroke-width="1.5"/>
+<text x="275" y="367" font-size="11.5" font-weight="700" text-anchor="middle">problems/two-sum</text>
+<text x="275" y="384" font-size="10" text-anchor="middle">5 tests + EXPECTED answers (never leave)</text>
+<!-- api -->
+<rect x="410" y="130" width="165" height="120" rx="8" fill="#fff" stroke="#33475b" stroke-width="1.5"/>
+<text x="492" y="153" font-size="12" font-weight="700" text-anchor="middle">Lambda MicroVMs API</text>
+<text x="492" y="177" font-size="10.5" text-anchor="middle">RunMicrovm</text>
+<text x="492" y="194" font-size="10.5" text-anchor="middle">CreateMicrovmAuthToken</text>
+<text x="492" y="211" font-size="10.5" text-anchor="middle">TerminateMicrovm</text>
+<text x="492" y="228" font-size="10.5" text-anchor="middle">ListMicrovms</text>
+<!-- image -->
+<rect x="410" y="285" width="165" height="112" rx="8" fill="#fff" stroke="#33475b" stroke-width="1.5"/>
+<text x="492" y="307" font-size="12" font-weight="700" text-anchor="middle">grader-image v4.0</text>
+<text x="492" y="325" font-size="10" text-anchor="middle" fill="#5b6675">memory + disk snapshot</text>
+<text x="492" y="343" font-size="10.5" text-anchor="middle">hooks: run, ready, validate</text>
+<text x="492" y="360" font-size="10.5" text-anchor="middle">built from S3 zip by</text>
+<text x="492" y="376" font-size="10.5" text-anchor="middle">role mvm-grader-build</text>
+<!-- cloudwatch -->
+<rect x="170" y="430" width="405" height="56" rx="8" fill="#fff" stroke="#33475b" stroke-width="1.5"/>
+<text x="372" y="452" font-size="12" font-weight="700" text-anchor="middle">CloudWatch Logs + S3</text>
+<text x="372" y="470" font-size="10.5" text-anchor="middle">Lambda JSON logs (microvmId, verdict, timings) | image build logs | grader-image.zip</text>
+<!-- microvm -->
+<rect x="660" y="50" width="310" height="440" rx="8" fill="#fff" stroke="#a02f24" stroke-width="1.5"/>
+<text x="815" y="72" font-size="12" font-weight="700" text-anchor="middle">MicroVM  (60 s cap, no execution role)</text>
+<rect x="680" y="88" width="270" height="105" rx="6" fill="#fff4f2" stroke="#a02f24"/>
+<text x="815" y="108" font-size="11.5" font-weight="700" text-anchor="middle">Runner (Node, root, port 8080)</text>
+<text x="692" y="128" font-size="10.5">GET /health</text>
+<text x="692" y="144" font-size="10.5">POST /grade  (100 KB / 50 KB / 20 inputs max)</text>
+<text x="692" y="160" font-size="10.5">POST /aws/lambda-microvms/runtime/v1/run</text>
+<text x="692" y="176" font-size="10.5">  re-seed, warm-up python, log microvmId</text>
+<rect x="680" y="215" width="270" height="260" rx="6" fill="#fff4f2" stroke="#a02f24"/>
+<text x="815" y="235" font-size="11.5" font-weight="700" text-anchor="middle">Sandbox per test (spawnSync)</text>
+<rect x="695" y="248" width="240" height="30" rx="4" fill="#fff" stroke="#a02f24"/><text x="815" y="267" font-size="10.5" text-anchor="middle">unshare --net  (empty network)</text>
+<rect x="695" y="286" width="240" height="30" rx="4" fill="#fff" stroke="#a02f24"/><text x="815" y="305" font-size="10.5" text-anchor="middle">setpriv  (drop to uid/gid 1001)</text>
+<rect x="695" y="324" width="240" height="30" rx="4" fill="#fff" stroke="#a02f24"/><text x="815" y="343" font-size="10.5" text-anchor="middle">prlimit  (64 procs, 512 MB)</text>
+<rect x="695" y="362" width="240" height="30" rx="4" fill="#fff" stroke="#a02f24"/><text x="815" y="381" font-size="10.5" text-anchor="middle">python3 /sandbox/sol.py</text>
+<text x="815" y="412" font-size="10.5" text-anchor="middle">2 s timeout + SIGKILL, 1 MB output cap</text>
+<text x="815" y="430" font-size="10.5" text-anchor="middle">/sandbox is root-owned (755)</text>
+<text x="815" y="448" font-size="10.5" text-anchor="middle">no answers, no AWS creds, no network</text>
+<!-- arrows -->
+<path d="M135 250 H168" stroke="#33475b" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+<text x="150" y="243" font-size="9.5" text-anchor="middle">POST</text>
+<path d="M380 190 H408" stroke="#33475b" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+<path d="M275 320 V343" stroke="#33475b" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+<path d="M492 250 V283" stroke="#33475b" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+<text x="500" y="271" font-size="9.5">restore</text>
+<path d="M575 340 H620 V130 H658" stroke="#33475b" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+<text x="624" y="240" font-size="9.5" transform="rotate(-90 624 240)">snapshot starts VM</text>
+<path d="M380 270 H600 V150 H658" stroke="#c0392b" stroke-width="2" fill="none" marker-end="url(#a)"/>
+<text x="470" y="288" font-size="9.5" fill="#a02f24" style="display:none">x</text>
+<text x="602" y="262" font-size="9.5" fill="#a02f24">HTTPS + X-aws-proxy-auth</text>
+<text x="602" y="274" font-size="9.5" fill="#a02f24">{code, inputs} only</text>
+<path d="M815 193 V213" stroke="#a02f24" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+</svg>
+<div class="note">Red arrow = the only data path into the VM. Expected answers stay in the trusted zone, so even a fully compromised runner can only lie about its own output.</div>
+</section>
+
+<section>
+<h2>2. How one submission runs</h2>
+<svg viewBox="0 0 1000 470" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#33475b"/></marker></defs>
+<g font-size="12" font-weight="700" text-anchor="middle">
+<rect x="20" y="10" width="170" height="30" rx="5" fill="#eef3f8" stroke="#33475b"/><text x="105" y="30">Console / CLI</text>
+<rect x="250" y="10" width="170" height="30" rx="5" fill="#eef7ef" stroke="#3d8b4f"/><text x="335" y="30">Grader Lambda</text>
+<rect x="480" y="10" width="170" height="30" rx="5" fill="#eef3f8" stroke="#33475b"/><text x="565" y="30">MicroVMs API</text>
+<rect x="710" y="10" width="170" height="30" rx="5" fill="#fdeeee" stroke="#c0392b"/><text x="795" y="30">MicroVM runner</text>
+</g>
+<g stroke="#99a4b3" stroke-dasharray="4 4"><path d="M105 40V455"/><path d="M335 40V455"/><path d="M565 40V455"/><path d="M795 40V455"/></g>
+<g stroke="#33475b" stroke-width="1.5" fill="none" marker-end="url(#b)" font-size="10.5">
+<path d="M105 70 H333"/><path d="M335 100 H563"/><path d="M563 125 H337"/><path d="M335 155 H563"/><path d="M563 180 H337"/>
+<path d="M335 210 H793"/><path d="M793 260 H337"/><path d="M335 300 H563"/><path d="M335 340 H105"/></g>
+<g font-size="10.5" fill="#1c2430">
+<text x="112" y="64">1  {problemId, code} + secret</text>
+<text x="342" y="94">2  RunMicrovm (60 s cap)  [~0.3 s]</text>
+<text x="400" y="119" text-anchor="start">microvmId, endpoint</text>
+<text x="342" y="149">3  CreateAuthToken (2 min, :8080)</text>
+<text x="400" y="174" text-anchor="start">X-aws-proxy-auth token</text>
+<text x="342" y="204">4  POST /grade {code, inputs}  (run hook already done)</text>
+<text x="565" y="254" text-anchor="end">6  [{status, stdout, stderr, ms} x5]</text>
+<text x="342" y="294">8  TerminateMicrovm (always, in finally)</text>
+<text x="112" y="334">9  verdict, passed/total, timings</text>
+</g>
+<rect x="745" y="222" width="100" height="30" rx="4" fill="#fff4f2" stroke="#a02f24"/>
+<text x="795" y="241" font-size="10" text-anchor="middle">5  run 5 tests</text>
+<rect x="250" y="268" width="170" height="26" rx="4" fill="#eef7ef" stroke="#3d8b4f"/>
+<text x="335" y="285" font-size="10" text-anchor="middle">7  validate + compare</text>
+</svg>
+<table>
+<tr><th>Timing field</th><th>What it measures</th><th>Typical (real run)</th></tr>
+<tr><td><code>launchMs</code></td><td>RunMicrovm: restore snapshot</td><td>240 - 500 ms</td></tr>
+<tr><td><code>tokenMs</code></td><td>CreateMicrovmAuthToken</td><td>about 190 ms</td></tr>
+<tr><td><code>gradeMs</code></td><td>POST /grade incl. 5 sandboxed runs (infinite loop = 5 x 2 s)</td><td>3 - 4 s normal, about 13 s for infinite loop</td></tr>
+<tr><td><code>terminateMs</code></td><td>TerminateMicrovm</td><td>about 160 ms</td></tr></table>
+<div class="note">Retries: RunMicrovm and the token call use exponential backoff with full jitter on <code>ThrottlingException</code>. The grader also retries the first POST briefly, because traffic only starts after the <code>run</code> hook returns.</div>
+</section>
+
+<section>
+<h2>3. Defence in depth: what stops each attack</h2>
+<table>
+<tr><th>Payload</th><th>What it tries</th><th>What stops it</th><th>Verdict</th></tr>
+<tr><td><code>infinite_loop.py</code></td><td>burn CPU forever</td><td><code>spawnSync</code> timeout 2000 ms + SIGKILL</td><td>TIMEOUT</td></tr>
+<tr><td><code>fork_bomb.py</code></td><td>fork until the host dies</td><td><code>prlimit --nproc=64</code> (fork refused)</td><td>ERROR</td></tr>
+<tr><td><code>memory_bomb.py</code></td><td>allocate 100 GB</td><td><code>prlimit --as=512 MB</code></td><td>ERROR</td></tr>
+<tr><td><code>rm_rf.py</code></td><td>delete /app, /usr, /etc, /bin</td><td>uid 1001, root-owned files: permission denied</td><td>ERROR</td></tr>
+<tr><td><code>exfil.py</code></td><td>HTTPS to example.com</td><td><code>unshare --net</code>: empty network namespace ("Name or service not known")</td><td>ERROR</td></tr>
+<tr><td><code>read_answers.py</code></td><td>search disk for expected answers</td><td>answers never sent into the VM</td><td>WRONG_ANSWER</td></tr>
+<tr><td><code>kill_runner.py</code></td><td>SIGKILL the runner and PID 1</td><td>different user: operation not permitted</td><td>ERROR</td></tr></table>
+<div class="cols"><div>
+<h3>Layers</h3>
+<ul>
+<li><b>MicroVM boundary</b>: separate VM per submission, destroyed after.</li>
+<li><b>No execution role</b>: nothing to steal.</li>
+<li><b>In-VM sandbox</b>: user, network, process and memory limits.</li>
+<li><b>Trusted comparison</b>: answers stay outside.</li>
+<li><b>Hostile-reply handling</b>: size cap, zod schema, control characters stripped.</li>
+<li><b>Cost cap</b>: 60 s max lifetime even if the grader crashes.</li>
+</ul></div>
+<div>
+<h3>Real-service findings</h3>
+<ul>
+<li>An empty <code>egressNetworkConnectors</code> list still attaches <code>INTERNET_EGRESS</code>. The first image let <code>exfil.py</code> reach example.com (HTTP 200). The network is therefore cut inside the VM.</li>
+<li>No "no egress" managed connector name exists (every guess was rejected).</li>
+<li>Lifecycle hooks are opt-in when creating the image.</li>
+<li>First request after restore is slow, so the <code>run</code> hook warms python up.</li>
+<li>The Lambda role needs <code>lambda:PassNetworkConnector</code> for the default connectors.</li>
+<li>Base image has Node 18 / Python 3.9 only, so the runner is bundled for node18.</li>
+</ul></div></div>
+</section>
+
+<section>
+<h2>4. Code map and demo flow</h2>
+<div class="cols"><div>
+<table>
+<tr><th>Path</th><th>Role</th></tr>
+<tr><td><code>runner/</code></td><td>server inside the VM, sandbox, Dockerfile, esbuild bundle</td></tr>
+<tr><td><code>grader/</code></td><td>grade(), MicroVM calls, retry, zod, compare, Lambda handler</td></tr>
+<tr><td><code>problems/two-sum/</code></td><td>5 tests with expected outputs (trusted only)</td></tr>
+<tr><td><code>solutions/</code>, <code>payloads/</code></td><td>correct, wrong, and 7 attack programs</td></tr>
+<tr><td><code>cli/</code></td><td>submit, attack, parallel, cleanup, local:attack, events</td></tr>
+<tr><td><code>infra/</code></td><td>CDK stack: Lambda, Function URL, IAM</td></tr>
+<tr><td><code>scripts/</code>, <code>iam/</code></td><td>package, upload, create image; policies</td></tr>
+<tr><td><code>grader/test/</code></td><td>15 vitest unit tests</td></tr></table>
+</div><div>
+<h3>Recording flow (console)</h3>
+<ol>
+<li>Show image <code>grader-image</code> (v4.0, state UPDATED, build logs).</li>
+<li>Lambda function, Test tab: run the 9 events from <code>out/events/</code> in order.</li>
+<li>Expected: ACCEPTED, WRONG_ANSWER (3/5), TIMEOUT, ERROR x4, WRONG_ANSWER, then ACCEPTED again.</li>
+<li>Show the MicroVM list: every test was a separate VM, all TERMINATED.</li>
+<li>Show CloudWatch: one <code>run-hook</code> line per VM, plus the Lambda <code>verdict</code> lines.</li>
+</ol>
+<h3>Cost and cleanup</h3>
+<ul><li>Each VM lives about 5 s, hard cap 60 s, always terminated.</li>
+<li>Teardown commands are in <code>CONSOLE-GUIDE.md</code> section E.</li></ul>
+</div></div>
+</section>
+</body></html>

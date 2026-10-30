@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadCodeArtifact",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::REPLACE_BUCKET/grader-image.zip"
+    },
+    {
+      "Sid": "BuildLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:ap-southeast-1:REPLACE_ACCOUNT:log-group:/aws/lambda/microvms/*"
+    }
+  ]
+}
